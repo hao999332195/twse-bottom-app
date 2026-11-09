@@ -1,7 +1,7 @@
 {
   "name": "台股底部形成觀察系統",
   "short_name": "台股底部觀察",
-  "start_url": "./twse_universal_bottom_app.html",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",

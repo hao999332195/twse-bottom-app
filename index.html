@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>台股底部形成觀察 App（跨波段通用 & 雲端自動判讀版）</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Noto Sans TC', sans-serif; background-color: #0f172a; color: #f8fafc; }
+    .glass-card { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .gold-border { border: 2px solid #f59e0b; box-shadow: 0 0 20px rgba(245, 158, 11, 0.15); }
+    input[type="checkbox"] { accent-color: #10b981; width: 1.25rem; height: 1.25rem; cursor: pointer; }
+  </style>
+  <!-- PWA 標籤 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body class="min-h-screen pb-16">
+
+  <!-- 頂部導覽與標題 -->
+  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-30 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="bg-amber-500/20 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-full border border-amber-500/30">跨波段萬用量化版 (PWA支援)</span>
+          <span id="syncStatusBadge" class="bg-slate-800 text-slate-400 text-xs px-2.5 py-1 rounded-full border border-slate-700">資料基準：自動同步中...</span>
+        </div>
+        <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white mt-1">📊 台股底部形成觀察與自動判讀系統</h1>
+      </div>
+      
+      <!-- 情境與重置快速切換按鈕 -->
+      <div class="flex flex-wrap gap-2">
+        <button onclick="loadPreset('snapshot_1106')" class="bg-amber-600 hover:bg-amber-500 text-white text-xs md:text-sm font-bold px-3 py-2 rounded-lg transition shadow">
+          ⚡ 載入 11/6 趕底基準 (25%)
+        </button>
+        <button onclick="loadPreset('bull_confirm')" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs md:text-sm font-bold px-3 py-2 rounded-lg transition shadow">
+          ✅ 模擬底部確認情境 (88%)
+        </button>
+        <button onclick="clearAllChecks()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs md:text-sm font-medium px-3 py-2 rounded-lg transition">
+          🔄 全數歸零 (0%)
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 mt-6 space-y-6">
+
+    <!-- 區塊 A：Google Sheets 雲端連線 & 動態波段數據輸入抽屜 -->
+    <section class="glass-card rounded-2xl p-5">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div class="flex-1">
+          <h2 class="text-base font-bold text-sky-400 flex items-center gap-2">
+            <span>☁️ 方式 2：Google Sheets 雲端盤後資料直連 (跨年度通用)</span>
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">
+            貼上您的 Google Apps Script 網頁應用程式網址，按下同步即可直接讀取最新 TWSE 融資、外資與 GOOGLEFINANCE 數據並自動完成 24 項打勾。
+          </p>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2 flex-1">
+          <input id="gasUrlInput" type="url" placeholder="貼上 https://script.google.com/macros/s/.../exec" 
+                 class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500">
+          <button onclick="syncFromGoogleSheet()" id="syncBtn" class="bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm px-4 py-2 rounded-lg transition whitespace-nowrap">
+            📥 同步雲端最新盤勢
+          </button>
+          <button onclick="toggleParamDrawer()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-medium text-sm px-3 py-2 rounded-lg transition whitespace-nowrap">
+            ⚙️ 展開/修改當日量化數據
+          </button>
+        </div>
+      </div>
+
+      <!-- 可折疊的動態數據模擬/手動輸入面板 -->
+      <div id="paramDrawer" class="hidden mt-5 pt-5 border-t border-slate-700/80">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-bold text-amber-400">💡 日後遇到任何股災修正，只要修改下方當日數據（或由 Google 試算表自動填入），點擊「套用數據自動判讀」即刻重算 24 項勾選：</span>
+          <button onclick="evaluateMarketDataAndCheck()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow">
+            🚀 套用下方數據並自動打勾判讀
+          </button>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">大盤目前點位</label>
+            <input id="inp_taiex_close" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="38500">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">季線(60MA)點位</label>
+            <input id="inp_ma60_level" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="40200">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">年線(240MA)點位</label>
+            <input id="inp_ma240_level" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="38200">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">大盤波段跌幅(%)</label>
+            <input id="inp_taiex_drop" type="number" step="0.1" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="19.5">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">融資波段減幅(%)</label>
+            <input id="inp_margin_drop" type="number" step="0.1" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="14.8">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">融資單日增減(億)</label>
+            <input id="inp_margin_day" type="number" step="0.1" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="-564.1">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">大盤融資維持率(%)</label>
+            <input id="inp_maint_rate" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="142">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">外資現貨買賣超(億)</label>
+            <input id="inp_foreign_spot" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="-450">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">外資期貨淨空單(口)</label>
+            <input id="inp_foreign_fut" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="39800">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">連續不破新低(天)</label>
+            <input id="inp_no_low_days" type="number" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="1">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">台積電漲跌幅(%)</label>
+            <input id="inp_tsmc_chg" type="number" step="0.1" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="-0.9">
+          </div>
+          <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+            <label class="text-slate-400 block mb-1">費半指數漲跌幅(%)</label>
+            <input id="inp_sox_chg" type="number" step="0.1" class="w-full bg-slate-800 text-white font-bold px-2 py-1 rounded border border-slate-700" value="-1.1">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 區塊 B：底部完成度儀表板 & 四大核心確認條件 -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- 左側：總分與動態燈號 -->
+      <div class="lg:col-span-5 glass-card rounded-2xl p-6 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-bold text-slate-400">綜合底部完成度</span>
+            <span id="checkedCountText" class="text-xs font-bold bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md">已達成 0 / 24 項</span>
+          </div>
+          <div class="flex items-baseline gap-3 mt-2">
+            <span id="scorePercentage" class="text-5xl font-black text-amber-400">0%</span>
+            <span id="signalBadge" class="px-3 py-1 rounded-full text-sm font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              載入中...
+            </span>
+          </div>
+          <!-- 進度條 -->
+          <div class="w-full bg-slate-800 h-3 rounded-full overflow-hidden mt-4">
+            <div id="progressBar" class="bg-amber-500 h-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div id="verdictBox" class="mt-5 p-4 rounded-xl bg-slate-900/90 border border-slate-700 text-xs leading-relaxed text-slate-300">
+          <!-- 動態判讀文字 -->
+        </div>
+      </div>
+
+      <!-- 右側：四大關鍵確認條件（黃金核心區） -->
+      <div class="lg:col-span-7 glass-card gold-border rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-lg font-black text-amber-400 flex items-center gap-2">
+              👑 穩健落底「四大關鍵確認條件」
+            </h2>
+            <p class="text-xs text-slate-300 mt-0.5">
+              單日大漲或國安基金進場不等於市場底；以下四項核心條件至少同時出現，才適合提高風險承受度：
+            </p>
+          </div>
+          <span id="coreFourCount" class="text-sm font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 px-3 py-1 rounded-lg">
+            0 / 4 達成
+          </span>
+        </div>
+
+        <div id="coreFourGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+          <!-- 由 JS 動態渲染四大核心指標狀態 -->
+        </div>
+      </div>
+    </section>
+
+    <!-- 區塊 C：六大觀察模組 (24項細緻量化檢核清單) -->
+    <section>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-bold text-white">📋 六大面向細緻化檢核清單（共 24 項跨波段通用指標，可手動微調勾選）</h2>
+        <span class="text-xs text-slate-400">點擊任一項目可直接切換勾選狀態，系統即時重算評分</span>
+      </div>
+      <div id="modulesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <!-- 由 JS 動態生成 6 大模組與 24 個檢核項 -->
+      </div>
+    </section>
+
+    <!-- 區塊 D：第七點「底部確認 vs 尚未落底」動態對照總表 -->
+    <section class="glass-card rounded-2xl p-6">
+      <h2 class="text-lg font-bold text-white mb-1">⚖️ 七、底部確認的實用檢核對照總表（隨勾選進度即時高亮）</h2>
+      <p class="text-xs text-slate-400 mb-4">系統自動統計各面向達成率：達成率 ≧ 50% 高亮綠色「底部接近訊號」，未滿 50% 警示紅色「尚未落底訊號」。</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs md:text-sm">
+          <thead>
+            <tr class="border-b border-slate-700 text-slate-300 bg-slate-900/60">
+              <th class="p-3 font-bold w-28">類別</th>
+              <th class="p-3 font-bold w-28">目前達成率</th>
+              <th class="p-3 font-bold text-emerald-400">✅ 底部接近的訊號</th>
+              <th class="p-3 font-bold text-rose-400">⚠️ 尚未落底的訊號</th>
+            </tr>
+          </thead>
+          <tbody id="summaryTableBody" class="divide-y divide-slate-800">
+            <!-- 由 JS 動態渲染 -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const MODULES_CONFIG = [
+      {
+        id: 'margin',
+        title: '一、融資是否充分去化（籌碼面）',
+        subtitle: '散戶槓桿與浮動籌碼清洗程度',
+        summaryApproach: '融資減幅大於大盤跌幅，隨後低檔橫盤、維持率回升',
+        summaryNotYet: '融資續減但仍高於大盤跌幅，或融資維持率續降引發斷頭',
+        items: [
+          {
+            id: 'm1_1',
+            title: '融資波段減幅 ＞ 大盤波段跌幅',
+            rule: '通用公式：波段融資減幅(%) > 波段大盤跌幅(%)',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `目前大盤波段跌 ${d.taiex_peak_drop_pct}%，融資波段減幅 ${d.margin_peak_drop_pct}% (${d.margin_peak_drop_pct > d.taiex_peak_drop_pct ? '減幅已大於大盤跌幅，浮額清洗充分' : '融資減幅仍小於大盤跌幅，停損賣壓未完'})`
+          },
+          {
+            id: 'm1_2',
+            title: '融資餘額止跌轉穩（低檔橫盤）',
+            rule: '通用公式：由連續大減轉為單日變動平緩或微幅回升',
+            coreFourIndex: 1,
+            coreTitle: '1. 融資止跌轉穩',
+            dynamicDesc: (d) => `目前融資餘額約 ${d.margin_balance_yi} 億，最新單日變動 ${d.margin_day_change_yi} 億 (${d.margin_stabilized ? '已轉為低檔橫盤沉澱' : '仍在劇烈去槓桿宣洩中，尚未橫盤'})`
+          },
+          {
+            id: 'm1_3',
+            title: '整戶融資維持率脫離危險區回升',
+            rule: '通用公式：大盤整戶維持率回升至 148%~150% 安全區之上',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `目前整戶融資維持率約 ${d.margin_maint_rate}% (${d.margin_maint_rate >= 148 ? '維持率回升，連鎖斷頭壓力減輕' : '維持率偏低，仍需提防追繳與斷頭賣壓'})`
+          },
+          {
+            id: 'm1_4',
+            title: '出現單日大額融資斷頭宣洩（去槓桿加速）',
+            rule: '通用公式：上市櫃單日融資大減逾 300 億元以上',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `最新單日上市櫃融資變動 ${d.margin_day_change_yi} 億元 (${d.margin_day_change_yi <= -300 ? '已出現恐慌性去槓桿加速訊號' : '單日未見極端斷頭宣洩'})`
+          }
+        ]
+      },
+      {
+        id: 'foreign',
+        title: '二、外資賣壓是否收斂（法人面）',
+        subtitle: '外資從連續大賣轉為賣壓縮小或轉買',
+        summaryApproach: '現貨賣超金額縮小、期貨空單回補、開始轉買、權值抗跌',
+        summaryNotYet: '外資連續大額賣超、期貨空單續增、台幣持續重貶',
+        items: [
+          {
+            id: 'm2_1',
+            title: '外資現貨賣超金額遞減或轉買',
+            rule: '通用公式：從單日數百/千億級賣超縮小至百億內或翻正',
+            coreFourIndex: 2,
+            coreTitle: '2. 外資賣壓收斂',
+            dynamicDesc: (d) => `外資最新現貨買賣超 ${d.foreign_spot_net_yi} 億元 (${d.foreign_spot_shrinking ? '賣壓已明顯收斂或轉買' : '外資提款賣壓依然沉重'})`
+          },
+          {
+            id: 'm2_2',
+            title: '外資台指期淨空單明顯回補',
+            rule: '通用公式：期貨淨空單自高峰連續下降（或低於 3.2 萬口）',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `目前外資台指期淨空單 ${d.foreign_futures_net_short.toLocaleString()} 口 (${d.foreign_futures_covering ? '空單回補，避險做空力道減弱' : '空單水位仍高，避險情緒濃厚'})`
+          },
+          {
+            id: 'm2_3',
+            title: '外資賣超但大型權值股（台積電）抗跌翻紅',
+            rule: '通用公式：台積電等核心權值股跌幅收斂或率先翻紅',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `台積電最新漲跌幅 ${d.tsmc_change_pct}% (${d.tsmc_change_pct >= 0 ? '權值核心抗跌翻紅，內資低檔有承接換手' : '權值股仍隨外資賣壓走弱'})`
+          },
+          {
+            id: 'm2_4',
+            title: '外資停止大額匯出、新台幣貶壓減輕',
+            rule: '通用公式：USD/TWD 停止急貶並轉為止穩或升值',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `台幣匯率單日變動 ${d.usd_twd_change}% (${d.usd_twd_change <= 0 ? '台幣止貶回穩，資金流出高峰已過' : '台幣持續貶值，外資匯出壓力未除'})`
+          }
+        ]
+      },
+      {
+        id: 'price_vol',
+        title: '三、價量是否出現底部結構（量價面）',
+        subtitle: '跌勢鈍化、量縮止穩與有效反彈',
+        summaryApproach: '價跌量縮後，3日不破底、反彈有量且低點墊高',
+        summaryNotYet: '下跌放量恐慌、反彈無量（逃命波）、頻創新低',
+        items: [
+          {
+            id: 'm3_1',
+            title: '下跌時成交量能遞減（價跌量縮）',
+            rule: '通用公式：回測時量能萎縮，代表恐慌性拋售減弱',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.vol_shrinking_on_drop ? '回檔量能已見萎縮，恐慌賣壓減弱' : '下跌過程仍伴隨放量殺盤，籌碼未安定'}`
+          },
+          {
+            id: 'm3_2',
+            title: '指數不再連續創新低（至少 3 日不破底）',
+            rule: '通用公式：連續 >= 3 個交易日守穩前波低點且低點墊高',
+            coreFourIndex: 3,
+            coreTitle: '3. 指數不再創新低',
+            dynamicDesc: (d) => `目前已連續 ${d.no_new_low_days} 日未創波段新低 (${d.no_new_low_days >= 3 ? '已達 3 日不破底止跌標準' : '尚未滿 3 日不破底，仍需觀察低點支撐'})`
+          },
+          {
+            id: 'm3_3',
+            title: '反彈時成交量溫和放大（非縮量逃命波）',
+            rule: '通用公式：反彈攻擊時具備量能推進且具延續性',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.rebound_with_vol ? '反彈量能溫和放大，買盤追價意願回升' : '目前反彈量能不足或尚未出現帶量上攻'}`
+          },
+          {
+            id: 'm3_4',
+            title: '低檔收出長下影線承接或回補上方缺口',
+            rule: '通用公式：急殺見長下影線且守住低點、回補空方缺口',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.long_lower_shadow ? '盤中大跌後收出長下影線，顯示特定買盤低檔承接' : 'K線尚未出現明顯長下影線或回補缺口訊號'}`
+          }
+        ]
+      },
+      {
+        id: 'technical',
+        title: '四、技術面是否同步轉強（技術面）',
+        subtitle: '短中長期均線、趨勢線與指標修復',
+        summaryApproach: '站回季線、突破下降壓力線、KD/RSI 底背離轉強',
+        summaryNotYet: '持續破底、反彈受制均線反壓、長期趨勢受損',
+        items: [
+          {
+            id: 'm4_1',
+            title: '反彈有量並正式站回季線（60MA）',
+            rule: '通用公式：加權指數收盤價 >= 季線點位且帶量站穩',
+            coreFourIndex: 4,
+            coreTitle: '4. 反彈有量站回季線',
+            dynamicDesc: (d) => `目前指數 ${d.taiex_close.toLocaleString()} 點 vs 季線 ${d.ma60_level.toLocaleString()} 點 (${d.taiex_close >= d.ma60_level && d.rebound_with_vol ? '已帶量站穩季線，中期趨勢轉強' : '尚未站回季線，中期反壓仍在'})`
+          },
+          {
+            id: 'm4_2',
+            title: '突破波段下降壓力線',
+            rule: '通用公式：指數或指標突破近期高點連線之下降趨勢線',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.break_downtrend_line ? '已突破波段下降壓力線，跌勢結構改變' : '仍受制於下降趨勢線反壓之下'}`
+          },
+          {
+            id: 'm4_3',
+            title: 'KD、RSI 出現低檔底背離或黃金交叉翻揚',
+            rule: '通用公式：指標低檔鈍化後轉強、指數未再破底',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.kd_rsi_bull_div ? 'KD/RSI 已出現底背離並翻揚向上' : '技術指標仍在低檔修正，未見明確背離轉強'}`
+          },
+          {
+            id: 'm4_4',
+            title: '年線（240MA）長線關鍵支撐守穩',
+            rule: '通用公式：加權指數收盤價 >= 年線支撐區',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `目前指數 ${d.taiex_close.toLocaleString()} 點 vs 年線 ${d.ma240_level.toLocaleString()} 點 (${d.taiex_close >= d.ma240_level ? '成功守穩年線之上，長期多頭結構未破壞' : '跌破年線支撐，長線需要時間整理'})`
+          }
+        ]
+      },
+      {
+        id: 'policy',
+        title: '五、國安基金與政策底（政策與資金面）',
+        subtitle: '政策護盤穩定信心與民間資金連動',
+        summaryApproach: '國安基金與公股行庫持續買超、限空令生效帶動信心',
+        summaryNotYet: '只有口頭喊話或單靠政府撐盤、民間資金未回流',
+        items: [
+          {
+            id: 'm5_1',
+            title: '國安基金已正式決議授權進場護盤',
+            rule: '通用公式：國安基金委員會授權動用資金執行市場安定任務',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.nsa_fund_authorized ? '國安基金已授權進場（政策底訊號確立）' : '國安基金尚未授權進場'}`
+          },
+          {
+            id: 'm5_2',
+            title: '八大公股行庫與投信連續買超護盤',
+            rule: '通用公式：國家隊與內資法人連續買超 >= 2 日',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `公股行庫與投信已連續買超 ${d.gov_bank_buying_days} 日 (${d.gov_bank_buying_days >= 2 ? '國家隊資金實質進場承接' : '尚未見公股連續性加碼'})`
+          },
+          {
+            id: 'm5_3',
+            title: '金管會限空令、信用交易調整等配套生效',
+            rule: '通用公式：祭出限空令、擔保品放寬等措施降低斷頭壓力',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.short_restriction_active ? '穩定市場配套措施已啟動，有助減緩強制平倉壓力' : '尚未祭出實質信用交易緩衝政策'}`
+          },
+          {
+            id: 'm5_4',
+            title: '政策護盤成功帶動民間資金與內資信心回流',
+            rule: '通用公式：市場不再單靠政府撐盤，中শ্型股與民間買盤回溫',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.retail_flow_returning ? '民間資金明顯回流，政策底順利轉化為市場底' : '目前仍處政策護盤初期，民間資金尚在觀望（政策底≠市場底）'}`
+          }
+        ]
+      },
+      {
+        id: 'global',
+        title: '六、國際股市與產業基本面（外部連動）',
+        subtitle: '美股科技股、AI 資本支出與台積電領軍',
+        summaryApproach: '費半與那指回穩站回均線、AI 需求預期改善、台積電止穩',
+        summaryNotYet: '費半與美科技股續弱、AI 資本支出審查疑慮未除',
+        items: [
+          {
+            id: 'm6_1',
+            title: '費城半導體指數（SOX）止跌並站回年線',
+            rule: '通用公式：費半指數止跌回升且站穩年線之上',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `費半最新單日漲跌 ${d.sox_change_pct}% (${d.sox_above_ma240 ? '費半已止跌並站穩年線，領先指標轉佳' : '費半尚未站穩年線，半導體外部壓力仍在'})`
+          },
+          {
+            id: 'm6_2',
+            title: '那斯達克指數回穩且美債殖利率壓力減輕',
+            rule: '通用公式：那指止穩翻紅，全球科技股風險偏好改善',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `那斯達克最新漲跌 ${d.ndx_change_pct}% (${d.ndx_change_pct > 0 ? '美科技股情緒回穩' : '美科技股與資金成本壓力尚未完全解除'})`
+          },
+          {
+            id: 'm6_3',
+            title: 'AI 資本支出與資料中心建置需求預期回穩',
+            rule: '通用公式：CSP 大廠資本支出與資料中心審查疑慮消除',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `${d.ai_capex_stable ? 'AI 伺服器與資料中心基本面預期重回正向' : '市場對 AI 資料中心建置審查與資本支出仍有觀望疑慮'}`
+          },
+          {
+            id: 'm6_4',
+            title: '權值核心「台積電」正式止穩並領軍大盤反攻',
+            rule: '通用公式：台積電不再破底且帶動大盤同步轉強',
+            coreFourIndex: null,
+            dynamicDesc: (d) => `台積電股價 ${d.tsmc_price} 元，單日 ${d.tsmc_change_pct}% (${d.tsmc_change_pct > 0.5 ? '台積電強勢止穩領軍大盤' : '台積電尚在築底整理階段'})`
+          }
+        ]
+      }
+    ];
+
+    let currentMarketData = {};
+    let checkedState = {};
+
+    const PRESETS = {
+      snapshot_1106: {
+        label: '2026-11-06 報告基準（趕底與籌碼沉澱階段）',
+        data: {
+          taiex_close: 38500, ma60_level: 40200, ma240_level: 38200,
+          taiex_peak_drop_pct: 19.5, margin_peak_drop_pct: 14.8,
+          margin_balance_yi: 2890, margin_day_change_yi: -564.1,
+          margin_stabilized: false, margin_maint_rate: 142,
+          foreign_spot_net_yi: -450, foreign_spot_shrinking: false,
+          foreign_futures_net_short: 39800, foreign_futures_covering: false,
+          vol_shrinking_on_drop: false, no_new_low_days: 1,
+          rebound_with_vol: false, long_lower_shadow: true,
+          break_downtrend_line: false, kd_rsi_bull_div: false,
+          nsa_fund_authorized: true, gov_bank_buying_days: 3,
+          short_restriction_active: true, retail_flow_returning: false,
+          sox_change_pct: -1.1, sox_above_ma240: false,
+          ndx_change_pct: -0.6, ai_capex_stable: false,
+          tsmc_price: 1030, tsmc_change_pct: -0.9, usd_twd_change: 0.15
+        },
+        checks: {
+          m1_1: false, m1_2: false, m1_3: false, m1_4: true,
+          m2_1: false, m2_2: false, m2_3: false, m2_4: false,
+          m3_1: false, m3_2: false, m3_3: false, m3_4: true,
+          m4_1: false, m4_2: false, m4_3: false, m4_4: true,
+          m5_1: true,  m5_2: true,  m5_3: true,  m5_4: false,
+          m6_1: false, m6_2: false, m6_3: false, m6_4: false
+        }
+      },
+      bull_confirm: {
+        label: '模擬底部確認情境（四大核心條件全數達成）',
+        data: {
+          taiex_close: 40500, ma60_level: 39800, ma240_level: 38400,
+          taiex_peak_drop_pct: 19.5, margin_peak_drop_pct: 23.4,
+          margin_balance_yi: 2620, margin_day_change_yi: 3.5,
+          margin_stabilized: true, margin_maint_rate: 158,
+          foreign_spot_net_yi: 125, foreign_spot_shrinking: true,
+          foreign_futures_net_short: 24500, foreign_futures_covering: true,
+          vol_shrinking_on_drop: true, no_new_low_days: 5,
+          rebound_with_vol: true, long_lower_shadow: true,
+          break_downtrend_line: true, kd_rsi_bull_div: true,
+          nsa_fund_authorized: true, gov_bank_buying_days: 6,
+          short_restriction_active: true, retail_flow_returning: true,
+          sox_change_pct: 2.3, sox_above_ma240: true,
+          ndx_change_pct: 1.5, ai_capex_stable: true,
+          tsmc_price: 1120, tsmc_change_pct: 2.7, usd_twd_change: -0.18
+        },
+        checks: {
+          m1_1: true, m1_2: true, m1_3: true, m1_4: true,
+          m2_1: true, m2_2: true, m2_3: true, m2_4: true,
+          m3_1: true, m3_2: true, m3_3: true, m3_4: true,
+          m4_1: true, m4_2: true, m4_3: true, m4_4: true,
+          m5_1: true, m5_2: true, m5_3: true, m5_4: true,
+          m6_1: true, m6_2: true, m6_3: false, m6_4: true
+        }
+      }
+    };
+
+    function evaluateMarketDataAndCheck() {
+      currentMarketData.taiex_close = parseFloat(document.getElementById('inp_taiex_close').value) || 0;
+      currentMarketData.ma60_level = parseFloat(document.getElementById('inp_ma60_level').value) || 0;
+      currentMarketData.ma240_level = parseFloat(document.getElementById('inp_ma240_level').value) || 0;
+      currentMarketData.taiex_peak_drop_pct = parseFloat(document.getElementById('inp_taiex_drop').value) || 0;
+      currentMarketData.margin_peak_drop_pct = parseFloat(document.getElementById('inp_margin_drop').value) || 0;
+      currentMarketData.margin_day_change_yi = parseFloat(document.getElementById('inp_margin_day').value) || 0;
+      currentMarketData.margin_maint_rate = parseFloat(document.getElementById('inp_maint_rate').value) || 0;
+      currentMarketData.foreign_spot_net_yi = parseFloat(document.getElementById('inp_foreign_spot').value) || 0;
+      currentMarketData.foreign_futures_net_short = parseFloat(document.getElementById('inp_foreign_fut').value) || 0;
+      currentMarketData.no_new_low_days = parseInt(document.getElementById('inp_no_low_days').value) || 0;
+      currentMarketData.tsmc_change_pct = parseFloat(document.getElementById('inp_tsmc_chg').value) || 0;
+      currentMarketData.sox_change_pct = parseFloat(document.getElementById('inp_sox_chg').value) || 0;
+
+      const d = currentMarketData;
+      d.margin_stabilized = Math.abs(d.margin_day_change_yi) <= 15 || d.margin_day_change_yi > 0;
+      d.foreign_spot_shrinking = d.foreign_spot_net_yi > -120;
+      d.foreign_futures_covering = d.foreign_futures_net_short < 32000;
+      d.rebound_with_vol = d.taiex_close >= d.ma60_level || d.tsmc_change_pct > 1.0;
+      d.sox_above_ma240 = d.sox_change_pct > 0.5;
+
+      checkedState = {
+        m1_1: d.margin_peak_drop_pct > d.taiex_peak_drop_pct,
+        m1_2: d.margin_stabilized,
+        m1_3: d.margin_maint_rate >= 148,
+        m1_4: d.margin_day_change_yi <= -300,
+        m2_1: d.foreign_spot_shrinking,
+        m2_2: d.foreign_futures_covering,
+        m2_3: d.tsmc_change_pct >= 0,
+        m2_4: d.usd_twd_change <= 0,
+        m3_1: d.vol_shrinking_on_drop || d.no_new_low_days >= 3,
+        m3_2: d.no_new_low_days >= 3,
+        m3_3: d.rebound_with_vol,
+        m3_4: d.long_lower_shadow,
+        m4_1: d.taiex_close >= d.ma60_level,
+        m4_2: d.taiex_close >= d.ma60_level || d.break_downtrend_line,
+        m4_3: d.no_new_low_days >= 3 || d.kd_rsi_bull_div,
+        m4_4: d.taiex_close >= d.ma240_level,
+        m5_1: d.nsa_fund_authorized,
+        m5_2: d.gov_bank_buying_days >= 2,
+        m5_3: d.short_restriction_active,
+        m5_4: d.taiex_close >= d.ma60_level && d.foreign_spot_shrinking,
+        m6_1: d.sox_above_ma240,
+        m6_2: d.sox_change_pct > 0,
+        m6_3: d.ai_capex_stable,
+        m6_4: d.tsmc_change_pct > 0.5
+      };
+
+      document.getElementById('syncStatusBadge').textContent = '資料基準：自訂波段參數動態運算';
+      renderAll();
+    }
+
+    async function syncFromGoogleSheet() {
+      const url = document.getElementById('gasUrlInput').value.trim();
+      if (!url) {
+        alert('請先貼上 Google Apps Script 網頁應用程式網址 (https://script.google.com/macros/s/.../exec)');
+        return;
+      }
+
+      const btn = document.getElementById('syncBtn');
+      const origText = btn.textContent;
+      btn.textContent = '⏳ 雲端同步中...';
+      btn.disabled = true;
+      document.getElementById('syncStatusBadge').textContent = '正在自動同步最新資料...';
+
+      try {
+        localStorage.setItem('twse_bottom_gas_url', url);
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.status === 'success' && json.data) {
+          currentMarketData = Object.assign({}, currentMarketData, json.data);
+          populateDrawerInputs();
+          evaluateMarketDataAndCheck();
+          document.getElementById('syncStatusBadge').textContent = `雲端同步成功：${json.data.update_date || '最新盤後'}`;
+        } else {
+          alert('讀取成功但格式異常：' + JSON.stringify(json));
+          document.getElementById('syncStatusBadge').textContent = '同步異常';
+        }
+      } catch (err) {
+        alert('連線失敗，請確認 Google Apps Script 部署權限已設為「所有人」：\n' + err.message);
+        document.getElementById('syncStatusBadge').textContent = '連線失敗';
+      } finally {
+        btn.textContent = origText;
+        btn.disabled = false;
+      }
+    }
+
+    function renderAll() {
+      const modulesContainer = document.getElementById('modulesContainer');
+      modulesContainer.innerHTML = '';
+
+      let totalItems = 0;
+      let checkedItems = 0;
+      const coreFourStatus = [];
+
+      MODULES_CONFIG.forEach(mod => {
+        let modChecked = 0;
+        let itemsHtml = '';
+
+        mod.items.forEach(item => {
+          totalItems++;
+          const isChecked = !!checkedState[item.id];
+          if (isChecked) {
+            checkedItems++;
+            modChecked++;
+          }
+          if (item.coreFourIndex) {
+            coreFourStatus.push({
+              index: item.coreFourIndex,
+              id: item.id,
+              title: item.coreTitle,
+              checked: isChecked,
+              desc: item.dynamicDesc(currentMarketData)
+            });
+          }
+
+          itemsHtml += `
+            <label for="chk_${item.id}" class="flex items-start gap-3 p-3 rounded-xl border transition cursor-pointer ${isChecked ? 'bg-emerald-950/30 border-emerald-600/50' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'}">
+              <input id="chk_${item.id}" type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleCheck('${item.id}')" class="mt-1 shrink-0">
+              <div class="flex-1 text-xs">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-bold text-sm ${isChecked ? 'text-emerald-300' : 'text-slate-200'}">${item.title}</span>
+                  ${item.coreFourIndex ? '<span class="text-[10px] font-black bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/40 shrink-0">★ 核心條件</span>' : ''}
+                </div>
+                <p class="text-slate-400 mt-1">${item.rule}</p>
+                <p class="mt-1.5 font-medium ${isChecked ? 'text-emerald-400' : 'text-amber-400/90'}">👉 判讀：${item.dynamicDesc(currentMarketData)}</p>
+              </div>
+            </label>
+          `;
+        });
+
+        const modPct = Math.round((modChecked / mod.items.length) * 100);
+        modulesContainer.innerHTML += `
+          <div class="glass-card rounded-2xl p-5 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                <div>
+                  <h3 class="font-bold text-base text-white">${mod.title}</h3>
+                  <p class="text-xs text-slate-400">${mod.subtitle}</p>
+                </div>
+                <span class="text-xs font-bold px-2.5 py-1 rounded-lg ${modChecked === mod.items.length ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-300'}">
+                  ${modChecked} / ${mod.items.length} (${modPct}%)
+                </span>
+              </div>
+              <div class="space-y-2.5">
+                ${itemsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      coreFourStatus.sort((a, b) => a.index - b.index);
+      const corePassedCount = coreFourStatus.filter(c => c.checked).length;
+      document.getElementById('coreFourCount').textContent = `${corePassedCount} / 4 達成`;
+      const coreGrid = document.getElementById('coreFourGrid');
+      coreGrid.innerHTML = coreFourStatus.map(c => `
+        <div onclick="toggleCheck('${c.id}')" class="p-3 rounded-xl border cursor-pointer transition ${c.checked ? 'bg-emerald-950/50 border-emerald-500/60' : 'bg-slate-900/80 border-slate-700/80'}">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-sm ${c.checked ? 'text-emerald-300' : 'text-slate-200'}">${c.title}</span>
+            <span class="text-xs font-bold px-2 py-0.5 rounded ${c.checked ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500/20 text-rose-300'}">
+              ${c.checked ? '✓ 已確認' : '✗ 未確認'}
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-1.5 line-clamp-2">${c.desc}</p>
+        </div>
+      `).join('');
+
+      const pct = Math.round((checkedItems / totalItems) * 100);
+      document.getElementById('checkedCountText').textContent = `已達成 ${checkedItems} / ${totalItems} 項`;
+      document.getElementById('scorePercentage').textContent = `${pct}%`;
+      const bar = document.getElementById('progressBar');
+      bar.style.width = `${pct}%`;
+
+      const badge = document.getElementById('signalBadge');
+      const verdict = document.getElementById('verdictBox');
+      const scoreEl = document.getElementById('scorePercentage');
+
+      if (corePassedCount === 4 && pct >= 70) {
+        badge.className = 'px-3 py-1 rounded-full text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        badge.textContent = '🟢 綠燈：底部結構完成確認';
+        scoreEl.className = 'text-5xl font-black text-emerald-400';
+        bar.className = 'bg-emerald-500 h-full transition-all duration-500';
+        verdict.innerHTML = `<strong class="text-emerald-400">【操作判讀：底部確認，適合提高風險承受度】</strong><br>「融資止跌、外資賣壓收斂、指數不再創新低、反彈有量並站回季線」四大核心條件已全數具備，且整體完成度達 ${pct}%，籌碼與技術結構同步翻多。`;
+      } else if (pct >= 20) {
+        badge.className = 'px-3 py-1 rounded-full text-sm font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40';
+        badge.textContent = '🟡 黃燈：趕底與籌碼沉澱階段';
+        scoreEl.className = 'text-5xl font-black text-amber-400';
+        bar.className = 'bg-amber-500 h-full transition-all duration-500';
+        verdict.innerHTML = `<strong class="text-amber-400">【操作判讀：趕底與籌碼沉澱階段，不宜過度追高】</strong><br>目前已出現融資大減、長下影線或政策護盤等初期築底訊號（完成度 ${pct}%，核心四條件達成 ${corePassedCount}/4 項），但外資賣壓或季線反壓尚未完全確認反轉，建議靜待四大核心條件同時出現。`;
+      } else {
+        badge.className = 'px-3 py-1 rounded-full text-sm font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40';
+        badge.textContent = '🔴 紅燈：尋底與高風險宣洩期';
+        scoreEl.className = 'text-5xl font-black text-rose-400';
+        bar.className = 'bg-rose-500 h-full transition-all duration-500';
+        verdict.innerHTML = `<strong class="text-rose-400">【操作判讀：尚未落底，嚴控資金與槓桿風險】</strong><br>目前各項籌碼、外資動向與價量指標多數未達標（完成度僅 ${pct}%），斷頭與外資提款賣壓仍在進行中，切勿僅因單日反彈而貿然重壓抄底。`;
+      }
+
+      const tbody = document.getElementById('summaryTableBody');
+      tbody.innerHTML = MODULES_CONFIG.map(mod => {
+        const modChecked = mod.items.filter(i => checkedState[i.id]).length;
+        const isGood = modChecked >= 2;
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="p-3 font-bold text-white">${mod.title.split('（')[0].replace(/^[一二三四五六]、/, '')}</td>
+            <td class="p-3">
+              <span class="px-2 py-0.5 rounded text-xs font-bold ${isGood ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}">
+                ${modChecked} / ${mod.items.length} 項達成
+              </span>
+            </td>
+            <td class="p-3 ${isGood ? 'text-emerald-300 font-bold bg-emerald-950/30' : 'text-slate-500'}">${mod.summaryApproach}</td>
+            <td class="p-3 ${!isGood ? 'text-rose-300 font-bold bg-rose-950/30' : 'text-slate-500'}">${mod.summaryNotYet}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleCheck(id) {
+      checkedState[id] = !checkedState[id];
+      renderAll();
+    }
+
+    function loadPreset(key) {
+      const preset = PRESETS[key];
+      if (!preset) return;
+      currentMarketData = JSON.parse(JSON.stringify(preset.data));
+      checkedState = JSON.parse(JSON.stringify(preset.checks));
+      populateDrawerInputs();
+      document.getElementById('syncStatusBadge').textContent = `資料基準：${preset.label}`;
+      renderAll();
+    }
+
+    function clearAllChecks() {
+      Object.keys(checkedState).forEach(k => checkedState[k] = false);
+      document.getElementById('syncStatusBadge').textContent = '資料基準：手動全數歸零 (0%)';
+      renderAll();
+    }
+
+    function toggleParamDrawer() {
+      const el = document.getElementById('paramDrawer');
+      el.classList.toggle('hidden');
+    }
+
+    function populateDrawerInputs() {
+      const d = currentMarketData;
+      document.getElementById('inp_taiex_close').value = d.taiex_close;
+      document.getElementById('inp_ma60_level').value = d.ma60_level;
+      document.getElementById('inp_ma240_level').value = d.ma240_level;
+      document.getElementById('inp_taiex_drop').value = d.taiex_peak_drop_pct;
+      document.getElementById('inp_margin_drop').value = d.margin_peak_drop_pct;
+      document.getElementById('inp_margin_day').value = d.margin_day_change_yi;
+      document.getElementById('inp_maint_rate').value = d.margin_maint_rate;
+      document.getElementById('inp_foreign_spot').value = d.foreign_spot_net_yi;
+      document.getElementById('inp_foreign_fut').value = d.foreign_futures_net_short;
+      document.getElementById('inp_no_low_days').value = d.no_new_low_days;
+      document.getElementById('inp_tsmc_chg').value = d.tsmc_change_pct;
+      document.getElementById('inp_sox_chg').value = d.sox_change_pct;
+    }
+
+    // ★★★ 加入一打開就自動同步的邏輯 ★★★
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedUrl = localStorage.getItem('twse_bottom_gas_url');
+      if (savedUrl) {
+        document.getElementById('gasUrlInput').value = savedUrl;
+        // 有記錄網址，直接啟動自動同步
+        syncFromGoogleSheet(); 
+      } else {
+        // 第一次使用，載入 11/6 預設快照
+        loadPreset('snapshot_1106');
+      }
+    });
+  </script>
+  
+  <!-- PWA Service Worker 註冊腳本 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+          .then(reg => console.log('ServiceWorker 註冊成功，範圍:', reg.scope))
+          .catch(err => console.log('ServiceWorker 註冊失敗:', err));
+      });
+    }
+  </script>
+</body>
+</html>

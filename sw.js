@@ -1,6 +1,6 @@
-const CACHE_NAME = 'twse-bottom-app-v2';
+const CACHE_NAME = 'twse-bottom-app-v3';
 const urlsToCache = [
-  './twse_universal_bottom_app.html',
+  './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
